@@ -107,4 +107,173 @@ Set the size of the _start symbol to the current location '.' minus its start.
 This is useful when debugging or when you implement call tracing.
 */
 .size _start, . - _start
+/*
+ This will set up our new segment registers. We need to do
+ something special in order to set CS. We do what is called a
+ far jump. A jump that includes a segment as well as an offset.
+ This is declared in C as 'extern void gdt_flush();
+*/
+.global gdt_flush     // Allows the C code to link to this
+.type gdt_flush, @function
+.extern gp            // Says that 'gp' is in another file
+gdt_flush:
+    lgdt (gp)        // Load the GDT with our 'gp' which is a special pointer
+    mov $0x10 ,%ax       // 0x10 is the offset in the GDT to our data segment
+	mov %ax, %ds
+	mov %ax, %es
+	mov %ax, %fs
+	mov %ax, %gs
+	mov %ax, %ss
 
+    jmp $0x08, $.flush   // 0x08 is the offset to our code segment: Far jump!
+.flush:
+	ret               // Returns back to the C code!
+/*
+ Loads the IDT defined in 'idtp' into the processor.
+ This is declared in C as 'extern void idt_load();
+ */
+.global idt_load
+.type idt_load, @function
+.extern idtp
+idt_load:
+    lidt (idtp)
+    ret
+
+
+.extern fault_handler
+
+.macro ISR_NOERRCODE isr_idx
+	.global isr\isr_idx
+	.type isr\isr_idx, @function
+	isr\isr_idx:
+		cli
+		pushl $0
+		pushl $\isr_idx
+		jmp isr_common_stub
+.endm
+
+.macro ISR_ERRCODE isr_idx
+	.global isr\isr_idx
+	.type isr\isr_idx, @function
+	isr\isr_idx:
+		cli
+		pushl $\isr_idx
+		jmp isr_common_stub
+.endm
+
+ISR_NOERRCODE 0
+ISR_NOERRCODE 1
+ISR_NOERRCODE 2
+ISR_NOERRCODE 3
+ISR_NOERRCODE 4
+ISR_NOERRCODE 5
+ISR_NOERRCODE 6
+ISR_NOERRCODE 7
+ISR_ERRCODE   8
+ISR_NOERRCODE 9
+ISR_ERRCODE   10
+ISR_ERRCODE   11
+ISR_ERRCODE   12
+ISR_ERRCODE   13
+ISR_ERRCODE   14
+ISR_NOERRCODE 15
+ISR_NOERRCODE 16
+ISR_NOERRCODE 17
+ISR_NOERRCODE 18
+ISR_NOERRCODE 19
+ISR_NOERRCODE 20
+ISR_NOERRCODE 21
+ISR_NOERRCODE 22
+ISR_NOERRCODE 23
+ISR_NOERRCODE 24
+ISR_NOERRCODE 25
+ISR_NOERRCODE 26
+ISR_NOERRCODE 27
+ISR_NOERRCODE 28
+ISR_NOERRCODE 29
+ISR_NOERRCODE 30
+ISR_NOERRCODE 31
+
+
+
+/*
+ This is our common ISR stub. It saves the processor state, sets
+ up for kernel mode segments, calls the C-level fault handler,
+ and finally restores the stack frame.
+*/
+
+isr_common_stub:
+	pusha
+	push %ds
+	push %es
+	push %fs
+	push %gs
+	movw $0x10,%ax
+	movw %ax,%ds
+	movw %ax,%es
+	movw %ax,%fs
+	movw %ax,%gs
+	movl %esp,%eax
+	pushl %eax
+	movl $fault_handler, %eax
+	call *%eax
+	popl %eax
+	popl %gs
+	popl %fs
+	popl %es
+	popl %ds
+	popa
+	addl $8,%esp
+	iret
+
+.macro IRQ val1, val2
+	.global irq\val1
+	.type irq\val1, @function
+	irq\val1:
+		cli
+		pushl $0
+		pushl $\val2
+		jmp irq_common_stub
+.endm
+/*we will map IRQ0 through IRQ15 to IDT entries 32 through 47*/
+IRQ 0, 32
+IRQ 1, 33
+IRQ 2, 34
+IRQ 3, 35
+IRQ 4, 36
+IRQ 5, 37
+IRQ 6, 38
+IRQ 7, 39
+IRQ 8, 40
+IRQ 9, 41
+IRQ 10, 42
+IRQ 11, 43
+IRQ 12, 44
+IRQ 13, 45
+IRQ 14, 46
+IRQ 15, 47
+
+.type irq_common_stub, @function
+irq_common_stub:
+	pusha
+	push %ds
+	push %es
+	push %fs
+	push %gs
+	movw $0x10, %ax
+	movw %ax, %ds
+	movw %ax, %es
+	movw %ax, %fs
+	movw %ax, %gs
+	movl %esp, %eax
+	pushl %eax
+	movl $irq_handler, %eax
+	call *%eax
+	popl %eax
+	popl %gs
+	popl %fs
+	popl %es
+	popl %ds
+	popa
+	addl $8, %esp
+	iret
